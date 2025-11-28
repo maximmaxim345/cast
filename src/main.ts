@@ -13,6 +13,30 @@ const CAST_NAMESPACE = "urn:x-cast:resonate";
 // Cast context for sending messages back to sender
 let castContext: any = null;
 
+// Get hardware volume from Cast system (0-100 scale)
+function getHardwareVolume(): { volume: number; muted: boolean } {
+  if (castContext) {
+    const systemVolume = castContext.getSystemVolume();
+    if (systemVolume) {
+      return {
+        volume: Math.round(systemVolume.level * 100),
+        muted: systemVolume.muted,
+      };
+    }
+  }
+  return { volume: 100, muted: false };
+}
+
+// Set hardware volume via Cast system
+function setHardwareVolume(volume: number, muted: boolean): void {
+  if (castContext) {
+    // Cast API uses 0.0-1.0 for volume level
+    castContext.setSystemVolumeLevel(volume / 100);
+    castContext.setSystemVolumeMuted(muted);
+    console.log("Resonate: Set hardware volume:", volume, "muted:", muted);
+  }
+}
+
 // Send status update to sender
 function sendStatusToSender(status: {
   state: "connecting" | "connected" | "playing" | "stopped" | "error";
@@ -77,9 +101,7 @@ function updateDebug(player: ResonatePlayer) {
 // Track current player state for periodic updates
 let currentPlayerState: {
   isPlaying: boolean;
-  volume: number;
-  muted: boolean;
-} = { isPlaying: false, volume: 100, muted: false };
+} = { isPlaying: false };
 
 // Connect to Resonate server
 async function connectToServer(baseUrl: string) {
@@ -107,16 +129,18 @@ async function connectToServer(baseUrl: string) {
       { codec: "pcm", sample_rate: 48000, channels: 2, bit_depth: 16 },
       { codec: "pcm", sample_rate: 44100, channels: 2, bit_depth: 16 },
     ],
+    // Use hardware volume control (Cast system volume)
+    useHardwareVolume: true,
+    onVolumeCommand: setHardwareVolume,
+    getExternalVolume: getHardwareVolume,
     onStateChange: (state) => {
       currentPlayerState = {
         isPlaying: state.isPlaying,
-        volume: state.volume,
-        muted: state.muted,
       };
-      const sync = player.timeSyncInfo;
+      const hwVol = getHardwareVolume();
       if (state.isPlaying) {
         window.setStatus?.(
-          `Playing · Volume: ${state.volume}%${state.muted ? " (muted)" : ""}`,
+          `Playing · Volume: ${hwVol.volume}%${hwVol.muted ? " (muted)" : ""}`,
         );
       } else {
         window.setStatus?.("Stopped");
@@ -150,10 +174,11 @@ async function connectToServer(baseUrl: string) {
 // Send current player status to sender
 function sendPlayerStatus(player: ResonatePlayer) {
   const sync = player.timeSyncInfo;
+  const hwVol = getHardwareVolume();
   sendStatusToSender({
     state: currentPlayerState.isPlaying ? "playing" : "stopped",
-    volume: currentPlayerState.volume,
-    muted: currentPlayerState.muted,
+    volume: hwVol.volume,
+    muted: hwVol.muted,
     sync: { synced: sync.synced, offset: sync.offset, error: sync.error },
   });
 }
@@ -186,6 +211,29 @@ function initCastReceiver() {
 
   console.log("Resonate: Initializing Cast Receiver...");
   window.setStatus?.("Waiting for sender...");
+
+  // Listen for system (hardware) volume changes
+  context.addEventListener(castFramework.system.EventType.SYSTEM_VOLUME_CHANGED, (event: any) => {
+    console.log("Resonate: System volume changed:", event.data);
+    const hwVol = getHardwareVolume();
+    window.setStatus?.(
+      currentPlayerState.isPlaying
+        ? `Playing · Volume: ${hwVol.volume}%${hwVol.muted ? " (muted)" : ""}`
+        : "Stopped",
+    );
+    // Send volume update to sender
+    const player = (window as any).player as ResonatePlayer | undefined;
+    if (player) {
+      sendPlayerStatus(player);
+    } else {
+      // No player yet, send basic volume update
+      sendStatusToSender({
+        state: "connected",
+        volume: hwVol.volume,
+        muted: hwVol.muted,
+      });
+    }
+  });
 
   // Cast event listeners
   context.addEventListener(castFramework.system.EventType.READY, () => {
