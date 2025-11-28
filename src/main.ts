@@ -26,8 +26,19 @@ function sendStatusToSender(status: {
   }
 }
 
+// Player ID, name, and sync delay provided by the sender (Music Assistant server)
+let providedPlayerId: string | null = null;
+let providedPlayerName: string | null = null;
+let providedSyncDelay: number = 0;
+
 // Generate or get player ID (persisted in localStorage)
 function getPlayerId(): string {
+  // If a player ID was provided by the sender, use it
+  if (providedPlayerId) {
+    localStorage.setItem("resonate_player_id", providedPlayerId);
+    return providedPlayerId;
+  }
+
   const params = new URLSearchParams(window.location.search);
   const paramId = params.get("player_id");
   if (paramId) {
@@ -78,12 +89,18 @@ async function connectToServer(baseUrl: string) {
   window.setStatus?.("Connecting...");
   sendStatusToSender({ state: "connecting", message: "Connecting to server..." });
 
+  // Use provided name or default
+  const clientName = providedPlayerName || "Music Assistant Cast Receiver";
+
+  console.log("Resonate: Using sync delay:", providedSyncDelay, "ms");
+
   const player = new ResonatePlayer({
     playerId,
     baseUrl,
     // Cast receiver config
     audioOutputMode: "direct", // Output directly to audioContext.destination
-    clientName: "Music Assistant Cast Receiver",
+    clientName,
+    syncDelay: providedSyncDelay,
     bufferCapacity: 1024 * 1024 * 1.5, // 1.5MB (GC4A memory constraint)
     supportedFormats: [
       // PCM only for GC4A 2.0 compatibility (no decodeAudioData for FLAC/Opus)
@@ -188,10 +205,28 @@ function initCastReceiver() {
     console.error("Resonate: Cast error:", event);
   });
 
-  // Listen for custom messages with server URL
+  // Listen for custom messages with server URL, player ID, name, and sync delay
   context.addCustomMessageListener(CAST_NAMESPACE, (event: any) => {
     console.log("Resonate: Received message from sender:", event.data);
     const serverUrl = event.data?.serverUrl;
+    const playerId = event.data?.playerId;
+    const playerName = event.data?.playerName;
+    const syncDelay = event.data?.syncDelay;
+    if (playerId) {
+      // Store the player ID provided by Music Assistant
+      providedPlayerId = playerId;
+      console.log("Resonate: Using player ID from sender:", playerId);
+    }
+    if (playerName) {
+      // Store the player name provided by Music Assistant
+      providedPlayerName = playerName;
+      console.log("Resonate: Using player name from sender:", playerName);
+    }
+    if (typeof syncDelay === "number") {
+      // Store the sync delay provided by Music Assistant
+      providedSyncDelay = syncDelay;
+      console.log("Resonate: Using sync delay from sender:", syncDelay, "ms");
+    }
     if (serverUrl) {
       connectToServer(serverUrl);
     }
