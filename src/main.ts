@@ -10,12 +10,6 @@ declare global {
 
 const CAST_NAMESPACE = "urn:x-cast:resonate";
 
-// Get server URL from query params (for local testing)
-function getBaseUrlFromParams(): string | null {
-  const params = new URLSearchParams(window.location.search);
-  return params.get("server");
-}
-
 // Generate or get player ID (persisted in localStorage)
 function getPlayerId(): string {
   const params = new URLSearchParams(window.location.search);
@@ -106,14 +100,8 @@ function initCastReceiver() {
   const context = castFramework?.CastReceiverContext?.getInstance();
 
   if (!context) {
-    console.log("Resonate: Cast SDK not available, checking query params...");
-    // Fallback for local testing without Cast SDK
-    const paramUrl = getBaseUrlFromParams();
-    if (paramUrl) {
-      connectToServer(paramUrl);
-    } else {
-      window.setStatus?.("No server configured. Add ?server=http://ip:8927");
-    }
+    console.log("Resonate: Cast SDK not available");
+    window.setStatus?.("Cast SDK not available");
     return;
   }
 

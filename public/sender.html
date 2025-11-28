@@ -97,13 +97,6 @@
     #stopBtn:hover:not(:disabled) {
       background: #c5221f;
     }
-    #testBtn {
-      background: #f1f3f4;
-      color: #333;
-    }
-    #testBtn:hover:not(:disabled) {
-      background: #e8eaed;
-    }
     #status {
       margin-top: 20px;
       padding: 14px 16px;
@@ -139,7 +132,6 @@
     <div class="buttons">
       <button id="castBtn" onclick="startCasting()" disabled>Cast to Device</button>
       <button id="stopBtn" onclick="stopCasting()" disabled>Stop</button>
-      <button id="testBtn" onclick="testLocally()">Test in this Browser</button>
     </div>
 
     <div id="status">Loading Cast SDK...</div>
@@ -164,21 +156,11 @@
       return `http://${ip}:8927`;
     }
 
-    function testLocally() {
-      const serverUrl = getServerUrl();
-      if (!serverUrl) {
-        document.getElementById('status').textContent = 'Please enter server IP first';
-        return;
-      }
-      // Open receiver in new tab with server URL as query param
-      window.open('../index.html?server=' + encodeURIComponent(serverUrl), '_blank');
-    }
-
     window['__onGCastApiAvailable'] = function(isAvailable) {
       if (isAvailable) {
         initializeCast();
       } else {
-        document.getElementById('status').textContent = 'Cast SDK not available. Use Chrome browser or test locally.';
+        document.getElementById('status').textContent = 'Cast SDK not available. Use Chrome browser.';
       }
     };
 
