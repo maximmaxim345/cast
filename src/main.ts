@@ -94,14 +94,26 @@ async function connectToServer(baseUrl: string) {
   (window as any).player = player;
 }
 
+// Detect if running on a Chromecast device (user agent contains "CrKey")
+function isRunningOnChromecast(): boolean {
+  return navigator.userAgent.includes("CrKey");
+}
+
 // Initialize Cast Receiver
 function initCastReceiver() {
+  // Redirect to sender page if not running on a Cast device
+  if (!isRunningOnChromecast()) {
+    console.log("Resonate: Not running on Cast device, redirecting to sender...");
+    window.location.href = "./sender.html";
+    return;
+  }
+
   const castFramework = window.cast?.framework;
   const context = castFramework?.CastReceiverContext?.getInstance();
 
   if (!context) {
     console.log("Resonate: Cast SDK not available");
-    window.setStatus?.("Cast SDK not available");
+    window.setStatus?.("Cast SDK error");
     return;
   }
 
