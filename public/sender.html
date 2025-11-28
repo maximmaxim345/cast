@@ -118,12 +118,15 @@
   <h1>Resonate over Cast Demo</h1>
   <p class="description">
     A proof-of-concept implementation of the Resonate protocol inside a Chromecast receiver app.
-    This allows synchronized audio streaming from Music Assistant to Chromecast devices.
+    Since Resonate uses standard WebSockets, it can run on pretty much anything, including
+    Google Cast and Cast Audio devices. This demo enables
+    on-the-fly speaker grouping without Google Home setup, flexible device combinations
+    beyond Google's restrictions (like pairing a Home Mini with a TV), and grouping with
+    other Resonate-compatible speakers.
   </p>
 
   <div class="disclaimer">
-    <strong>Note:</strong> This is experimental software. Audio glitches and crackling may occur
-    during playback due to timing synchronization challenges on constrained Cast hardware.
+    <strong>Note:</strong> This is experimental software. Audio glitches and crackling may still occur.
   </div>
 
   <div class="card">
@@ -136,7 +139,7 @@
     <div class="buttons">
       <button id="castBtn" onclick="startCasting()" disabled>Cast to Device</button>
       <button id="stopBtn" onclick="stopCasting()" disabled>Stop</button>
-      <button id="testBtn" onclick="testLocally()">Test in Browser</button>
+      <button id="testBtn" onclick="testLocally()">Test in this Browser</button>
     </div>
 
     <div id="status">Loading Cast SDK...</div>
