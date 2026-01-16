@@ -12,6 +12,8 @@ const CAST_NAMESPACE = "urn:x-cast:sendspin";
 const KNOWN_CODECS = ["pcm", "flac", "opus"] as const;
 type Codec = (typeof KNOWN_CODECS)[number];
 const DEFAULT_CODECS: Codec[] = ["pcm"];
+const MAX_INIT_RETRIES = 40;
+const RETRY_DELAY_MS = 250;
 
 function isCodec(value: unknown): value is Codec {
   return (
@@ -163,7 +165,6 @@ async function connectToServer(baseUrl: string) {
   const player = new SendspinPlayer({
     playerId,
     baseUrl,
-    // Cast receiver config
     audioOutputMode: "direct", // Output directly to audioContext.destination
     clientName,
     syncDelay: providedSyncDelay,
@@ -231,30 +232,20 @@ function sendPlayerStatus(player: SendspinPlayer) {
   });
 }
 
-// Detect if running on a Chromecast device (user agent contains "CrKey")
-function isRunningOnChromecast(): boolean {
-  return navigator.userAgent.includes("CrKey");
-}
+let receiverStarted = false;
 
-// Initialize Cast Receiver
-function initCastReceiver() {
-  // Redirect to sender page if not running on a Cast device
-  if (!isRunningOnChromecast()) {
-    console.log(
-      "Sendspin: Not running on Cast device, redirecting to sender...",
-    );
-    window.location.href = "./sender.html";
-    return;
+// Try to initialize Cast Receiver (returns true on success)
+function tryInitCastReceiver(): boolean {
+  if (receiverStarted) {
+    return true;
   }
 
   const castFramework = window.cast?.framework;
   const context = castFramework?.CastReceiverContext?.getInstance();
-
-  if (!context) {
-    console.log("Sendspin: Cast SDK not available");
-    window.setStatus?.("Cast SDK error");
-    return;
+  if (!castFramework || !context) {
+    return false;
   }
+  receiverStarted = true;
 
   // Store context for sending messages back to sender
   castContext = context;
@@ -377,11 +368,20 @@ function initCastReceiver() {
 
   context.start(options);
   console.log("Sendspin: Cast Receiver started");
+
+  return true;
 }
 
-// Start when DOM is ready
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initCastReceiver);
-} else {
-  initCastReceiver();
+function initCastReceiverWithRetry(attempt = 0) {
+  if (tryInitCastReceiver()) {
+    return;
+  }
+  if (attempt >= MAX_INIT_RETRIES) {
+    console.log("Sendspin: Cast SDK not available");
+    window.setStatus?.("Not running in a Cast receiver context");
+    return;
+  }
+  setTimeout(() => initCastReceiverWithRetry(attempt + 1), RETRY_DELAY_MS);
 }
+
+initCastReceiverWithRetry();
