@@ -32,6 +32,7 @@ function isCodec(value: unknown): value is Codec {
 
 // Cast context for sending messages back to sender
 let castContext: any = null;
+let player: SendspinPlayer | undefined;
 
 // Get hardware volume from Cast system (0-100 scale)
 function getHardwareVolume(): { volume: number; muted: boolean } {
@@ -71,7 +72,10 @@ function sendStatusToSender(status: {
   muted?: boolean;
 }) {
   if (castContext) {
-    castContext.sendCustomMessage(CAST_NAMESPACE, undefined, status);
+    castContext.sendCustomMessage(CAST_NAMESPACE, undefined, {
+      type: "status",
+      ...status,
+    });
   }
 }
 
@@ -150,10 +154,9 @@ async function connectToServer(baseUrl: string) {
     clearInterval(statusIntervalId);
     statusIntervalId = null;
   }
-  const existingPlayer = (window as any).player as SendspinPlayer | undefined;
-  if (existingPlayer) {
+  if (player) {
     console.log("Sendspin: Disconnecting existing player before reconnect");
-    existingPlayer.disconnect();
+    player.disconnect();
   }
 
   const playerId = getPlayerId();
@@ -170,7 +173,7 @@ async function connectToServer(baseUrl: string) {
 
   console.log("Sendspin: Using sync delay:", providedSyncDelay, "ms");
 
-  const player = new SendspinPlayer({
+  const newPlayer = new SendspinPlayer({
     playerId,
     baseUrl,
     clientName,
@@ -197,28 +200,26 @@ async function connectToServer(baseUrl: string) {
       } else {
         window.setStatus?.("Stopped");
       }
-      sendPlayerStatus(player);
-      updateDebug(player);
+      sendPlayerStatus(newPlayer);
+      updateDebug(newPlayer);
     },
   });
 
   try {
-    await player.connect();
+    await newPlayer.connect();
     console.log("Sendspin: Connected - ready to play");
     window.setStatus?.("Ready to play");
+    player = newPlayer;
     sendStatusToSender({ state: "connected", message: "Ready to play" });
 
     // Track current connection settings for change detection (only on success)
     currentServerUrl = baseUrl;
     currentPlayerCodecs = providedCodecs ?? DEFAULT_CODECS;
 
-    // Expose player globally for debugging
-    (window as any).player = player;
-
     // Periodically send status to sender
     statusIntervalId = setInterval(() => {
-      updateDebug(player);
-      sendPlayerStatus(player);
+      updateDebug(newPlayer);
+      sendPlayerStatus(newPlayer);
     }, 1000);
   } catch (error) {
     console.error("Sendspin: Connection failed:", error);
@@ -274,7 +275,6 @@ function tryInitCastReceiver(): boolean {
           : "Stopped",
       );
       // Send volume update to sender
-      const player = (window as any).player as SendspinPlayer | undefined;
       if (player) {
         sendPlayerStatus(player);
       } else {
@@ -318,11 +318,17 @@ function tryInitCastReceiver(): boolean {
   // Listen for custom messages with server URL, player ID, name, and sync delay
   context.addCustomMessageListener(CAST_NAMESPACE, (event: any) => {
     console.log("Sendspin: Received message from sender:", event.data);
-    const serverUrl = event.data?.serverUrl;
-    const playerId = event.data?.playerId;
-    const playerName = event.data?.playerName;
-    const syncDelay = event.data?.syncDelay;
-    const codecs = event.data?.codecs;
+    if (!event.data) {
+      return;
+    }
+
+    // type = "config"
+    const serverUrl = event.data.serverUrl;
+    const playerId = event.data.playerId;
+    const playerName = event.data.playerName;
+    const syncDelay = event.data.syncDelay;
+    const codecs = event.data.codecs;
+
     if (Array.isArray(codecs) && codecs.every(isCodec)) {
       providedCodecs = codecs;
       console.log("Sendspin: Using codecs from sender:", codecs);
@@ -342,27 +348,25 @@ function tryInitCastReceiver(): boolean {
       providedSyncDelay = syncDelay;
       console.log("Sendspin: Using sync delay from sender:", syncDelay, "ms");
       // Update existing player if already connected
-      const existingPlayer = (window as any).player as
-        | SendspinPlayer
-        | undefined;
-      if (existingPlayer) {
-        existingPlayer.setSyncDelay(syncDelay);
+      if (player) {
+        player.setSyncDelay(syncDelay);
         console.log("Sendspin: Updated sync delay on existing player");
       }
     }
     // Check if codecs changed on an existing player - requires reconnect
-    const existingPlayer = (window as any).player as SendspinPlayer | undefined;
-    if (existingPlayer && currentPlayerCodecs && providedCodecs) {
-      const codecsChanged =
-        JSON.stringify(providedCodecs) !== JSON.stringify(currentPlayerCodecs);
-      if (codecsChanged) {
-        const targetUrl = serverUrl ?? currentServerUrl;
-        if (targetUrl) {
-          console.log("Sendspin: Codecs changed, reconnecting...");
-          connectToServer(targetUrl);
-        }
-        return;
+    if (
+      player &&
+      currentPlayerCodecs &&
+      providedCodecs &&
+      // Check for actual changes in codecs
+      JSON.stringify(providedCodecs) !== JSON.stringify(currentPlayerCodecs)
+    ) {
+      const targetUrl = serverUrl ?? currentServerUrl;
+      if (targetUrl) {
+        console.log("Sendspin: Codecs changed, reconnecting...");
+        connectToServer(targetUrl);
       }
+      return;
     }
 
     if (serverUrl && serverUrl !== currentServerUrl) {
