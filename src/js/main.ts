@@ -129,11 +129,11 @@ function sendStatusToSender(status: {
   }
 }
 
-// Player ID, name, sync delay, and codecs provided by the sender (Music Assistant server)
+// Player ID, name, and codecs provided by the sender (Music Assistant server)
 let providedPlayerId: string | null = null;
 let providedPlayerName: string | null = null;
-let providedSyncDelay: number = 0;
 let providedCodecs: Codec[] | null = null;
+let providedSyncDelay: number = 0;
 
 // Track current connection settings (for detecting changes that require reconnect)
 let currentServerUrl: string | null = null;
@@ -398,6 +398,15 @@ async function connectToServer(
       // Use hardware volume control (Cast system volume)
       useHardwareVolume: true,
       onVolumeCommand: setHardwareVolume,
+      onDelayCommand: (delayMs: number) => {
+        providedSyncDelay = delayMs;
+        if (castContext) {
+          castContext.sendCustomMessage(CAST_NAMESPACE, undefined, {
+            type: "config",
+            syncDelay: delayMs,
+          });
+        }
+      },
       getExternalVolume: getHardwareVolume,
       useOutputLatencyCompensation: true,
       onStateChange: (state) => {
@@ -647,7 +656,7 @@ function tryInitCastReceiver(): boolean {
     );
   });
 
-  // Listen for custom messages with server URL, player ID, name, and sync delay
+  // Listen for custom messages with server URL, player ID, name, and codecs
   context.addCustomMessageListener(CAST_NAMESPACE, (event) => {
     console.log("Sendspin: Received message from sender:", event.data);
     if (!event.data) {
@@ -658,7 +667,6 @@ function tryInitCastReceiver(): boolean {
     const serverUrl = event.data.serverUrl;
     const playerId = event.data.playerId;
     const playerName = event.data.playerName;
-    const syncDelay = event.data.syncDelay;
     const codecs = event.data.codecs;
 
     if (Array.isArray(codecs) && codecs.every(isCodec)) {
@@ -675,14 +683,11 @@ function tryInitCastReceiver(): boolean {
       providedPlayerName = playerName;
       console.log("Sendspin: Using player name from sender:", playerName);
     }
-    if (typeof syncDelay === "number") {
-      // Store the sync delay provided by Music Assistant
+    const syncDelay = event.data.syncDelay;
+    if (typeof syncDelay === "number" && syncDelay >= 0 && syncDelay <= 5000) {
       providedSyncDelay = syncDelay;
-      console.log("Sendspin: Using sync delay from sender:", syncDelay, "ms");
-      // Update existing player if already connected
       if (player) {
         player.setSyncDelay(syncDelay);
-        console.log("Sendspin: Updated sync delay on existing player");
       }
     }
     // Check if codecs changed on an existing player - requires reconnect
